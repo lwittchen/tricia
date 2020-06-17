@@ -3,6 +3,8 @@ import pandas as pd
 import pandas_datareader.data as web
 import numpy as np
 
+import matplotlib.pyplot as plt
+
 import config as cfg
 
 
@@ -76,15 +78,15 @@ if __name__ == '__main__':
     # inputs
     start_time = pd.Timestamp(2019, 1, 1)
     end_time = pd.to_datetime("now") + pd.DateOffset(days=0, normalize=True)
-    size_universe = 50
+    size_universe = 10
 
     # get etf universe (all ETFs traded on NASDAQ)
     stock_symbols = get_symbols_from_nasdaq()
-    etf_symbols = stock_symbols.query('etf == "Y"')
-    etf_universe = etf_symbols["symbol"].tolist()
+    etf_universe = stock_symbols.query('etf == "Y"')
+    etf_symbols = etf_universe["symbol"].tolist()
 
     # load data
-    etf_dict = load_etf_data(symbols=etf_universe[:5])
+    etf_dict = load_etf_data(symbols=etf_symbols[:5])
 
     # extract adjusted close and volume data
     etfs = pd.DataFrame()
@@ -94,8 +96,38 @@ if __name__ == '__main__':
         temp_data['symbol'] = symbol
         etfs = etfs.append(temp_data)
 
-    breakpoint()
+    # extract etf with largest traded volume
+    largest_vol_symbols = etfs.groupby('symbol')['volume'].mean().nlargest(10).index
+    largest_etfs = etfs[etfs['symbol'].isin(largest_vol_symbols)]
 
+    # change from long to wide format 
+    largest_etfs_wide = largest_etfs.pivot(values='adjusted_close', columns='symbol')
+    
+    # calc percentage returns 
+    # todo: add log return
+    pct_rets = largest_etfs_wide.pct_change()
+
+    # calc total returns and covariance
+    mean_rets = pct_rets.mean()
+    cov = pct_rets.cov()
+    
+    k = 10000
+
+    results = []
+    for _ in range(k):
+        rand_nums = np.random.randint(10, size=len(mean_rets))
+        rand_weights = rand_nums / rand_nums.sum()
+        
+        pf_ret = calc_portfolio_return(weights=rand_weights, mean_rets=mean_rets)
+        pf_std = calc_portfolio_std(weights=rand_weights, cov_matrix=cov)
+        results.append({'ret': pf_ret, 'std': pf_std})
+
+    results_df = pd.DataFrame(results)
+
+    # plot the results
+    results_df.plot.scatter(x='std', y='ret')
+    plt.show()
+    
     # # keep 50 ETFs with largest average volume during last month
     # volumes_mavg: pd.DataFrame = volumes.rolling(window=21).mean()
     # largest_volumes: pd.Series = volumes_mavg.iloc[-1].nlargest(size_universe)
