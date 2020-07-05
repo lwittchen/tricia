@@ -1,12 +1,15 @@
+import time
 import logging
 import pandas as pd
 import pandas_datareader.data as web
+from pandas_datareader.nasdaq_trader import get_nasdaq_symbols
 import numpy as np
+from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 
 import config as cfg
-
+import pf_tools as pf
 
 def clean_colnames(data: pd.DataFrame) -> pd.DataFrame:
     """
@@ -31,9 +34,9 @@ def get_symbols_from_nasdaq() -> pd.DataFrame:
     return clean_stock_symbols
 
 
-def load_etf_data(symbols: list) -> dict:
+def load_etf_data(symbols: list, with_sleep: bool=False) -> dict:
     etfs = {}
-    for symbol in symbols:
+    for symbol in tqdm(symbols):
         logging.info(f"Load data for {symbol}")
         try:
             data = web.DataReader(
@@ -44,6 +47,8 @@ def load_etf_data(symbols: list) -> dict:
                 api_key=cfg.av_key,
             )
             etfs[symbol] = clean_colnames(data)
+            if with_sleep:
+                time.sleep(5)
         except Exception as e:
             logging.warning(
                 f"Error while loading data for {symbol} from Alpha Vantage. Error: {e}",
@@ -52,91 +57,73 @@ def load_etf_data(symbols: list) -> dict:
     return etfs
 
 
-def calc_portfolio_return(weights: pd.Series, mean_rets: pd.Series) -> float:
-    """
-    Total Portfolio Return given the respective weights
-    """
-    return (weights * mean_rets).sum() * 252
-
-
-def calc_portfolio_std(weights: pd.Series, cov_matrix: pd.DataFrame) -> float:
-    """
-    Portfolio Variance given the respective covariance Matrix
-    """
-    return np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))) * np.sqrt(252)
-
-
-def calc_sharpe_ratio(port_return: float, port_std: float) -> float:
-    """
-    Sharpe ratio assuming risk-free rate is zero
-    """
-    return port_return / port_std
-
-
 if __name__ == '__main__':
 
     # inputs
     start_time = pd.Timestamp(2019, 1, 1)
     end_time = pd.to_datetime("now") + pd.DateOffset(days=0, normalize=True)
-    size_universe = 10
+    N = 10
+    k = 10000
 
     # get etf universe (all ETFs traded on NASDAQ)
-    stock_symbols = get_symbols_from_nasdaq()
-    etf_universe = stock_symbols.query('etf == "Y"')
-    etf_symbols = etf_universe["symbol"].tolist()
+    stock_symbols = get_nasdaq_symbols()
+    etf_universe = stock_symbols.query('ETF')  # implicit query: ETF==True
+    etf_symbols = etf_universe.index.tolist()
 
     # load data
-    etf_dict = load_etf_data(symbols=etf_symbols[:5])
+    random_symbols = np.random.choice(etf_symbols, 20)
+    etf_dict = load_etf_data(symbols=random_symbols, with_sleep=True)
 
     # extract adjusted close and volume data
     etfs = pd.DataFrame()
     for symbol, data in etf_dict.items():
-        
         temp_data = data[['adjusted_close', 'volume']]
         temp_data['symbol'] = symbol
         etfs = etfs.append(temp_data)
 
     # extract etf with largest traded volume
-    largest_vol_symbols = etfs.groupby('symbol')['volume'].mean().nlargest(10).index
+    largest_vol_symbols = etfs.groupby('symbol')['volume'].mean().nlargest(N).index
     largest_etfs = etfs[etfs['symbol'].isin(largest_vol_symbols)]
 
     # change from long to wide format 
     largest_etfs_wide = largest_etfs.pivot(values='adjusted_close', columns='symbol')
     
     # calc percentage returns 
-    # todo: add log return
-    pct_rets = largest_etfs_wide.pct_change()
+    pct_rets = np.log(largest_etfs_wide/largest_etfs_wide.shift(1))
 
     # calc total returns and covariance
     mean_rets = pct_rets.mean()
     cov = pct_rets.cov()
-    
-    k = 10000
 
+    # find the optimal long-only portfolio by 
+    # searching for the max the sharpe ratio in our etf universe
+    
+    # with skikit
+
+
+
+    # with Monte Carlo
     results = []
-    for _ in range(k):
-        rand_nums = np.random.randint(10, size=len(mean_rets))
+    for _ in tqdm(range(k)):
+        rand_nums = np.random.random(size=len(mean_rets))
         rand_weights = rand_nums / rand_nums.sum()
         
-        pf_ret = calc_portfolio_return(weights=rand_weights, mean_rets=mean_rets)
-        pf_std = calc_portfolio_std(weights=rand_weights, cov_matrix=cov)
-        results.append({'ret': pf_ret, 'std': pf_std})
+        pf_ret = pf.get_return(weights=rand_weights, mean_rets=mean_rets)
+        pf_std = pf.get_std(weights=rand_weights, cov_matrix=cov)
+        results.append(dict(zip(mean_rets.index, rand_weights), ret=pf_ret, std=pf_std))
 
     results_df = pd.DataFrame(results)
+    results_df['sharpe'] = results_df['ret'] / results_df['std']
+    max_sharpe_idx = results_df['sharpe'].idxmax()
+    min_std_idx = results_df['std'].idxmin()
+
 
     # plot the results
     results_df.plot.scatter(x='std', y='ret')
+    plt.plot(results_df.loc[max_sharpe_idx, 'std'], results_df.loc[max_sharpe_idx, 'ret'], color='red', marker='*')
     plt.show()
-    
-    # # keep 50 ETFs with largest average volume during last month
-    # volumes_mavg: pd.DataFrame = volumes.rolling(window=21).mean()
-    # largest_volumes: pd.Series = volumes_mavg.iloc[-1].nlargest(size_universe)
 
-    # # price universe
-    # price_universe: pd.DataFrame = prices[largest_volumes.index]
+    print('Maximum Sharpe: \n', results_df.loc[max_sharpe_idx])
+    print('Minimum Std: \n', results_df.loc[min_std_idx])
 
-    # rets = price_universe.pct_change()
-    # mean_rets = rets.mean()
-    # cov_matrix = rets.cov()
-
-    # print(price_universe)
+    breakpoint()
