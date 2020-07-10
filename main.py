@@ -97,6 +97,9 @@ if __name__ == "__main__":
     mean_rets = pct_rets.mean()
     cov = pct_rets.cov()
 
+    print('ETF Universe:')
+    print(mean_rets * 252)
+
     # find the optimal long-only portfolio by
     # searching for the max the sharpe ratio in our etf universe
 
@@ -114,9 +117,11 @@ if __name__ == "__main__":
         return -sr
 
     res = minimize(fun=obj_func, x0=x0, bounds=bnds, constraints=cons)
-    print(f"Optimal Portfolio by optimization:")
+    print(f"Optimal Portfolio weights by optimization:")
     print(pd.Series(res.x, index=mean_rets.index).round(2))
-    print(f"Achived Sharpe: {-res.fun}")
+    print(f"Sharpe: {-res.fun}")
+    print(f"Return: {pf.get_return(res.x, mean_rets)}")
+    print(f"Std: {pf.get_std(res.x, cov)}")
 
     # using Monte Carlo
     results = []
@@ -144,4 +149,4 @@ if __name__ == "__main__":
     plt.show()
 
     print(f"Optimal Portfolio by monte carlo:")
-    print("Maximum Sharpe: \n", results_df.loc[max_sharpe_idx])
+    print(results_df.loc[max_sharpe_idx])
