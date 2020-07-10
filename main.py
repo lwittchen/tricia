@@ -1,5 +1,6 @@
 import time
 import logging
+from scipy.optimize import minimize
 import pandas as pd
 import pandas_datareader.data as web
 from pandas_datareader.nasdaq_trader import get_nasdaq_symbols
@@ -41,10 +42,10 @@ def load_etf_data(symbols: list, with_sleep: bool=False) -> dict:
         try:
             data = web.DataReader(
                 name=symbol,
-                data_source="av-daily-adjusted",
+                data_source="yahoo",
                 start=start_time,
                 end=end_time,
-                api_key=cfg.av_key,
+                # api_key=cfg.av_key,
             )
             etfs[symbol] = clean_colnames(data)
             if with_sleep:
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     # extract adjusted close and volume data
     etfs = pd.DataFrame()
     for symbol, data in etf_dict.items():
-        temp_data = data[['adjusted_close', 'volume']]
+        temp_data = data[['adj_close', 'volume']]
         temp_data['symbol'] = symbol
         etfs = etfs.append(temp_data)
 
@@ -86,7 +87,7 @@ if __name__ == '__main__':
     largest_etfs = etfs[etfs['symbol'].isin(largest_vol_symbols)]
 
     # change from long to wide format 
-    largest_etfs_wide = largest_etfs.pivot(values='adjusted_close', columns='symbol')
+    largest_etfs_wide = largest_etfs.pivot(values='adj_close', columns='symbol')
     
     # calc percentage returns 
     pct_rets = np.log(largest_etfs_wide/largest_etfs_wide.shift(1))
@@ -98,11 +99,25 @@ if __name__ == '__main__':
     # find the optimal long-only portfolio by 
     # searching for the max the sharpe ratio in our etf universe
     
-    # with skikit
+    # with scipy
+    bnds = [(0, 1) for _ in range(N)]
+    cons = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
+    x0 = [1/N for _ in range(N)]
 
+    def obj_func(weights):
+        global cov 
+        global pf_std
+        pf_std = pf.get_std(weights=weights, cov_matrix=cov)
+        pf_ret = pf.get_return(weights=weights, mean_rets=mean_rets)
+        sr = pf.get_sharpe_ratio(pf_return=pf_ret, pf_std=pf_std)
+        return -sr
 
+    res = minimize(fun=obj_func, x0=x0, bounds=bnds, constraints=cons)
+    print(f'Optimal Portfolio by optimization:')
+    print(pd.Series(res.x, index=mean_rets.index).round(2))
+    print(f'Achived Sharpe: {-res.fun}')
 
-    # with Monte Carlo
+    # using Monte Carlo
     results = []
     for _ in tqdm(range(k)):
         rand_nums = np.random.random(size=len(mean_rets))
@@ -123,7 +138,6 @@ if __name__ == '__main__':
     plt.plot(results_df.loc[max_sharpe_idx, 'std'], results_df.loc[max_sharpe_idx, 'ret'], color='red', marker='*')
     plt.show()
 
+    print(f'Optimal Portfolio by monte carlo:')
     print('Maximum Sharpe: \n', results_df.loc[max_sharpe_idx])
-    print('Minimum Std: \n', results_df.loc[min_std_idx])
-
-    breakpoint()
+    
