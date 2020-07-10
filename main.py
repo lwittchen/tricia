@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import config as cfg
 import pf_tools as pf
 
+
 def clean_colnames(data: pd.DataFrame) -> pd.DataFrame:
     """
     Make sure that all column names are lowercase and don't contain spaces
@@ -35,7 +36,7 @@ def get_symbols_from_nasdaq() -> pd.DataFrame:
     return clean_stock_symbols
 
 
-def load_etf_data(symbols: list, with_sleep: bool=False) -> dict:
+def load_etf_data(symbols: list, with_sleep: bool = False) -> dict:
     etfs = {}
     for symbol in tqdm(symbols):
         logging.info(f"Load data for {symbol}")
@@ -58,7 +59,7 @@ def load_etf_data(symbols: list, with_sleep: bool=False) -> dict:
     return etfs
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     # inputs
     start_time = pd.Timestamp(2019, 1, 1)
@@ -68,7 +69,7 @@ if __name__ == '__main__':
 
     # get etf universe (all ETFs traded on NASDAQ)
     stock_symbols = get_nasdaq_symbols()
-    etf_universe = stock_symbols.query('ETF')  # implicit query: ETF==True
+    etf_universe = stock_symbols.query("ETF")  # implicit query: ETF==True
     etf_symbols = etf_universe.index.tolist()
 
     # load data
@@ -78,34 +79,34 @@ if __name__ == '__main__':
     # extract adjusted close and volume data
     etfs = pd.DataFrame()
     for symbol, data in etf_dict.items():
-        temp_data = data[['adj_close', 'volume']]
-        temp_data['symbol'] = symbol
+        temp_data = data[["adj_close", "volume"]]
+        temp_data["symbol"] = symbol
         etfs = etfs.append(temp_data)
 
     # extract etf with largest traded volume
-    largest_vol_symbols = etfs.groupby('symbol')['volume'].mean().nlargest(N).index
-    largest_etfs = etfs[etfs['symbol'].isin(largest_vol_symbols)]
+    largest_vol_symbols = etfs.groupby("symbol")["volume"].mean().nlargest(N).index
+    largest_etfs = etfs[etfs["symbol"].isin(largest_vol_symbols)]
 
-    # change from long to wide format 
-    largest_etfs_wide = largest_etfs.pivot(values='adj_close', columns='symbol')
-    
-    # calc percentage returns 
-    pct_rets = np.log(largest_etfs_wide/largest_etfs_wide.shift(1))
+    # change from long to wide format
+    largest_etfs_wide = largest_etfs.pivot(values="adj_close", columns="symbol")
+
+    # calc percentage returns
+    pct_rets = np.log(largest_etfs_wide / largest_etfs_wide.shift(1))
 
     # calc total returns and covariance
     mean_rets = pct_rets.mean()
     cov = pct_rets.cov()
 
-    # find the optimal long-only portfolio by 
+    # find the optimal long-only portfolio by
     # searching for the max the sharpe ratio in our etf universe
-    
+
     # with scipy
     bnds = [(0, 1) for _ in range(N)]
-    cons = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
-    x0 = [1/N for _ in range(N)]
+    cons = [{"type": "eq", "fun": lambda x: np.sum(x) - 1}]
+    x0 = [1 / N for _ in range(N)]
 
     def obj_func(weights):
-        global cov 
+        global cov
         global pf_std
         pf_std = pf.get_std(weights=weights, cov_matrix=cov)
         pf_ret = pf.get_return(weights=weights, mean_rets=mean_rets)
@@ -113,31 +114,34 @@ if __name__ == '__main__':
         return -sr
 
     res = minimize(fun=obj_func, x0=x0, bounds=bnds, constraints=cons)
-    print(f'Optimal Portfolio by optimization:')
+    print(f"Optimal Portfolio by optimization:")
     print(pd.Series(res.x, index=mean_rets.index).round(2))
-    print(f'Achived Sharpe: {-res.fun}')
+    print(f"Achived Sharpe: {-res.fun}")
 
     # using Monte Carlo
     results = []
     for _ in tqdm(range(k)):
         rand_nums = np.random.random(size=len(mean_rets))
         rand_weights = rand_nums / rand_nums.sum()
-        
+
         pf_ret = pf.get_return(weights=rand_weights, mean_rets=mean_rets)
         pf_std = pf.get_std(weights=rand_weights, cov_matrix=cov)
         results.append(dict(zip(mean_rets.index, rand_weights), ret=pf_ret, std=pf_std))
 
     results_df = pd.DataFrame(results)
-    results_df['sharpe'] = results_df['ret'] / results_df['std']
-    max_sharpe_idx = results_df['sharpe'].idxmax()
-    min_std_idx = results_df['std'].idxmin()
-
+    results_df["sharpe"] = results_df["ret"] / results_df["std"]
+    max_sharpe_idx = results_df["sharpe"].idxmax()
+    min_std_idx = results_df["std"].idxmin()
 
     # plot the results
-    results_df.plot.scatter(x='std', y='ret')
-    plt.plot(results_df.loc[max_sharpe_idx, 'std'], results_df.loc[max_sharpe_idx, 'ret'], color='red', marker='*')
+    results_df.plot.scatter(x="std", y="ret")
+    plt.plot(
+        results_df.loc[max_sharpe_idx, "std"],
+        results_df.loc[max_sharpe_idx, "ret"],
+        color="red",
+        marker="*",
+    )
     plt.show()
 
-    print(f'Optimal Portfolio by monte carlo:')
-    print('Maximum Sharpe: \n', results_df.loc[max_sharpe_idx])
-    
+    print(f"Optimal Portfolio by monte carlo:")
+    print("Maximum Sharpe: \n", results_df.loc[max_sharpe_idx])
