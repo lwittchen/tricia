@@ -64,7 +64,7 @@ if __name__ == "__main__":
     # inputs
     start_time = pd.Timestamp(2019, 1, 1)
     end_time = pd.to_datetime("now") + pd.DateOffset(days=0, normalize=True)
-    N = 10
+    N = 4
     k = 10000
 
     # get etf universe (all ETFs traded on NASDAQ)
@@ -74,6 +74,7 @@ if __name__ == "__main__":
 
     # load data
     random_symbols = np.random.choice(etf_symbols, 20)
+    random_symbols = ['EXS1.DE', 'IWDA.L', 'LYPS.DE', 'IS3N.DE']
     etf_dict = load_etf_data(symbols=random_symbols, with_sleep=True)
 
     # extract adjusted close and volume data
@@ -82,6 +83,8 @@ if __name__ == "__main__":
         temp_data = data[["adj_close", "volume"]]
         temp_data["symbol"] = symbol
         etfs = etfs.append(temp_data)
+
+    breakpoint()
 
     # extract etf with largest traded volume
     largest_vol_symbols = etfs.groupby("symbol")["volume"].mean().nlargest(N).index
@@ -99,6 +102,7 @@ if __name__ == "__main__":
 
     print('ETF Universe:')
     print(mean_rets * 252)
+    print(cov)
 
     # find the optimal long-only portfolio by
     # searching for the max the sharpe ratio in our etf universe
@@ -150,3 +154,5 @@ if __name__ == "__main__":
 
     print(f"Optimal Portfolio by monte carlo:")
     print(results_df.loc[max_sharpe_idx])
+
+    breakpoint()
